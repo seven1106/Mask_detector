@@ -1,8 +1,5 @@
-/node_modules
-/vendor
-/.idea
-.idea/
+/dataset
 .env
-package-lock.json
+note
 .vscode
 ```
