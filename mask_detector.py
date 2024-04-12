@@ -4,15 +4,16 @@ import time
 import tkinter as tk
 from tkinter import *
 from tkinter import filedialog, messagebox
-from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
-from tensorflow.keras.preprocessing.image import img_to_array
+
 import customtkinter
 import cv2
 import imutils
 import numpy as np
 from imutils.video import VideoStream
 from PIL import Image, ImageTk
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 from tensorflow.keras.models import load_model
+from tensorflow.keras.preprocessing.image import img_to_array
 
 
 class App(customtkinter.CTk):
@@ -50,20 +51,13 @@ class App(customtkinter.CTk):
         self.faceNet = cv2.dnn.readNet(self.prototxtPath, self.weightsPath)
 
         # loading age detector model
-        self.prototxtPath = os.path.sep.join(
-            ["age_detector", "age_deploy.prototxt"])
-        self.weightsPath = os.path.sep.join(
-            ["age_detector", "age_net.caffemodel"])
-        # self.ageNet = cv2.dnn.readNet(self.prototxtPath, self.weightsPath)
-        self.ageNet = load_model('mask_detector.model')
+        self.faceMaskNet = load_model('mask_detector.model')
         
-        self.AGE_BUCKETS = ["(0-2)", "(4-6)"]
-        # create navigation frame
         self.navigation_frame = customtkinter.CTkFrame(self, corner_radius=0)
         self.navigation_frame.grid(row=0, column=0, sticky="nsew")
         self.navigation_frame.grid_rowconfigure(4, weight=1)
 
-        self.navigation_frame_label = customtkinter.CTkLabel(self.navigation_frame, text=" Age Predictor", image=self.logo_image,
+        self.navigation_frame_label = customtkinter.CTkLabel(self.navigation_frame, text=" Mask Detector", image=self.logo_image,
                                                              compound="left", font=customtkinter.CTkFont(size=15, weight="bold"))
         self.navigation_frame_label.grid(row=0, column=0, padx=20, pady=20)
 
@@ -82,7 +76,7 @@ class App(customtkinter.CTk):
                                                       image=self.add_user_image, anchor="w", command=self.frame_3_button_event)
         self.frame_3_button.grid(row=3, column=0, sticky="ew")
 
-        self.appearance_mode_menu = customtkinter.CTkOptionMenu(self.navigation_frame, values=["Light", "Dark", "System"],
+        self.appearance_mode_menu = customtkinter.CTkOptionMenu(self.navigation_frame, values=["Dark", "Light", "System"],
                                                                 command=self.change_appearance_mode_event)
         self.appearance_mode_menu.grid(
             row=6, column=0, padx=20, pady=20, sticky="s")
@@ -155,15 +149,15 @@ class App(customtkinter.CTk):
         self.live_btn.pack(expand=True, side="left", padx=5)
 
         self.stop_btn = customtkinter.CTkButton(
-            self.btn_third_frame, text="Stop", command=self.cam_stop, height=40, width=100)
+            self.btn_third_frame, text="Stop", command=self.stop_webcam, height=40, width=100)
         self.stop_btn.pack(expand=True, side="left", padx=5)
         self.snap_btn = customtkinter.CTkButton(
             self.btn_third_frame, text="Take Snapshot", command=self.takeSnapshot, height=40, width=100)
         self.snap_btn.pack(expand=True, side="left", padx=5)
         self.cap = None
+        self.cam = None
         self.select_frame_by_name("home")
-    # frame api
-
+    # navigation frame features
     def select_frame_by_name(self, name):
         # set button color for selected button
         self.home_button.configure(
@@ -245,7 +239,7 @@ class App(customtkinter.CTk):
 
                 # filter out weak detections by ensuring the confidence is
                 # greater than the minimum confidence
-                if confidence > 0.2:
+                if confidence > 0.5:
                     # compute the (x, y)-coordinates of the bounding box for
                     # the object
                     box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
@@ -275,7 +269,7 @@ class App(customtkinter.CTk):
                 # faces at the same time rather than one-by-one predictions
                 # in the above `for` loop
                 faces = np.array(faces, dtype="float32")
-                preds = self.ageNet.predict(faces, batch_size=32)
+                preds = self.faceMaskNet.predict(faces, batch_size=32)
                 for (box, pred) in zip(locs, preds):
                     # unpack the bounding box and predictions
                     (startX, startY, endX, endY) = box
@@ -318,7 +312,7 @@ class App(customtkinter.CTk):
         except:
             messagebox.showerror("Error", "No photos to save")
 
-    # video frame features
+
     def save_vid(self):
         try:
             vs = cv2.VideoCapture(self.file_path)
@@ -342,118 +336,6 @@ class App(customtkinter.CTk):
 
             while (vs.isOpened()):
 
-                (grabbed, frame) = vs.read()
-
-                if not grabbed:
-                    break
-
-                frame = imutils.resize(frame, width=400)
-
-                results = self.fame_pred(frame)
-
-                for r in results:
-                    text = "{}: {:.2f}%".format(r["age"][0], r["age"][1] * 100)
-                    (startX, startY, endX, endY) = r["loc"]
-
-                    # lets put text and box on our image
-
-                    y = startY - 10 if startY - 10 > 10 else startY + 10
-                    cv2.rectangle(frame, (startX, startY),
-                                  (endX, endY), (0, 0, 255), 2)
-                    cv2.putText(frame, text, (startX, y),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
-
-                if writer is None:
-                    messagebox.showinfo(
-                        "Location", "Please select location to save video")
-                    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
-                    writer_path = filedialog.asksaveasfilename(
-                        defaultextension=".MJPG", filetypes=[("Video", ".MJPG")])
-                    writer = cv2.VideoWriter(
-                        writer_path, fourcc, 20, (frame.shape[1], frame.shape[0]), True)
-
-                writer.write(frame)
-
-            messagebox.showinfo(
-                "Success", "Predicted video saved at:\n{}".format(writer_path))
-        except:
-            messagebox.showerror("Error", "No video to save")
-
-    def pause(self):
-        self.vs.release()
-        self.vid_player.configure(text="Load video and Predict")
-
-    def fame_pred(self, frame, minConf=0.5):
-        # grab the dimensions of the frame and then construct a blob
-        # from it
-        (h, w) = frame.shape[:2]
-        blob = cv2.dnn.blobFromImage(frame, 1.0, (224, 224),
-            (104.0, 177.0, 123.0))
-
-        # pass the blob through the network and obtain the face detections
-        self.faceNet.setInput(blob)
-        detections = self.faceNet.forward()
-        # print(detections.shape)
-
-        # initialize our list of faces, their corresponding locations,
-        # and the list of predictions from our face mask network
-        faces = []
-        locs = []
-        preds = []
-
-        # loop over the detections
-        for i in range(0, detections.shape[2]):
-            # extract the confidence (i.e., probability) associated with
-            # the detection
-            confidence = detections[0, 0, i, 2]
-
-            # filter out weak detections by ensuring the confidence is
-            # greater than the minimum confidence
-            if confidence > 0.5:
-                # compute the (x, y)-coordinates of the bounding box for
-                # the object
-                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
-                (startX, startY, endX, endY) = box.astype("int")
-
-                # ensure the bounding boxes fall within the dimensions of
-                # the frame
-                (startX, startY) = (max(0, startX), max(0, startY))
-                (endX, endY) = (min(w - 1, endX), min(h - 1, endY))
-
-                # extract the face ROI, convert it from BGR to RGB channel
-                # ordering, resize it to 224x224, and preprocess it
-                face = frame[startY:endY, startX:endX]
-                face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
-                face = cv2.resize(face, (224, 224))
-                face = img_to_array(face)
-                face = preprocess_input(face)
-
-                # add the face and bounding boxes to their respective
-                # lists
-                faces.append(face)
-                locs.append((startX, startY, endX, endY))
-
-        # only make a predictions if at least one face was detected
-        if len(faces) > 0:
-            # for faster inference we'll make batch predictions on *all*
-            # faces at the same time rather than one-by-one predictions
-            # in the above `for` loop
-            faces = np.array(faces, dtype="float32")
-            preds = self.ageNet.predict(faces, batch_size=32)
-
-        # return a 2-tuple of the face locations and their corresponding
-        # locations
-        return (locs, preds)
-
-    def handle_frame_vid(self):
-        try:
-            if self.vs is None:
-                self.file_path = filedialog.askopenfilename()
-                self.vs = cv2.VideoCapture(self.file_path)
-                self.predict_vid_btn.configure(text="Video Predicting...")
-                self.predict_vid_btn.configure(command=None)
-            # lets begin our loop for video frames
-            while (self.vs.isOpened()):
                 (grabbed, frame) = self.vs.read()
                 if not grabbed:
                     break
@@ -480,6 +362,90 @@ class App(customtkinter.CTk):
                     cv2.putText(frame, label, (startX, startY - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
                     cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
+
+                if writer is None:
+                    messagebox.showinfo(
+                        "Location", "Please select location to save video")
+                    fourcc = cv2.VideoWriter_fourcc(*"MJPG")
+                    writer_path = filedialog.asksaveasfilename(
+                        defaultextension=".MJPG", filetypes=[("Video", ".MJPG")])
+                    writer = cv2.VideoWriter(
+                        writer_path, fourcc, 20, (frame.shape[1], frame.shape[0]), True)
+
+                writer.write(frame)
+
+            messagebox.showinfo(
+                "Success", "Predicted video saved at:\n{}".format(writer_path))
+        except:
+            messagebox.showerror("Error", "No video to save")
+
+    def pause(self):
+        self.vs.release()
+        self.vid_player.configure(text="Load video and Predict")
+
+    def fame_pred(self, frame, minConf=0.5):
+
+        (h, w) = frame.shape[:2]
+        blob = cv2.dnn.blobFromImage(frame, 1.0, (224, 224),
+            (104.0, 177.0, 123.0))
+
+        self.faceNet.setInput(blob)
+        detections = self.faceNet.forward()
+        faces = []
+        locs = []
+        preds = []
+
+        for i in range(0, detections.shape[2]):
+
+            confidence = detections[0, 0, i, 2]
+
+            if confidence > 0.5:
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+
+                (startX, startY) = (max(0, startX), max(0, startY))
+                (endX, endY) = (min(w - 1, endX), min(h - 1, endY))
+
+                face = frame[startY:endY, startX:endX]
+                face = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
+                face = cv2.resize(face, (224, 224))
+                face = img_to_array(face)
+                face = preprocess_input(face)
+
+                faces.append(face)
+                locs.append((startX, startY, endX, endY))
+
+        if len(faces) > 0:
+            faces = np.array(faces, dtype="float32")
+            preds = self.faceMaskNet.predict(faces, batch_size=32)
+        return (locs, preds)
+
+    def handle_frame_vid(self):
+        try:
+            if self.vs is None:
+                self.file_path = filedialog.askopenfilename()
+                self.vs = cv2.VideoCapture(self.file_path)
+                self.predict_vid_btn.configure(text="Video Predicting...")
+                self.predict_vid_btn.configure(command=None)
+            while (self.vs.isOpened()):
+                (grabbed, frame) = self.vs.read()
+                if not grabbed:
+                    break
+                frame = imutils.resize(frame, width=600)
+                (locs, preds) = self.fame_pred(frame)
+
+                for (box, pred) in zip(locs, preds):
+                    (startX, startY, endX, endY) = box
+                    (mask, withoutMask) = pred
+
+                    label = "Mask" if mask > withoutMask else "No Mask"
+                    color = (0, 255, 0) if label == "Mask" else (0, 0, 255)
+
+                    label = "{}: {:.2f}%".format(label, max(mask, withoutMask) * 100)
+
+                    cv2.putText(frame, label, (startX, startY - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
+                    cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
                 self.snap = frame
                 frame = cv2.resize(frame, (1000, 600))
                 img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -495,12 +461,10 @@ class App(customtkinter.CTk):
             self.predict_vid_btn.configure(command=self.handle_frame_vid)
             self.predict_vid_btn.configure(text="Load video and Predict")
             messagebox.showinfo(" ", "Video ended")
-
         except:
             pass
 
-    # real time frame features
-
+    # real time features
     def webcam_pred(self):
         if self.cap is None:
             self.cap = VideoStream(src=0).start()
@@ -509,37 +473,23 @@ class App(customtkinter.CTk):
             self.live_btn.configure(command=None)
         try:
             while True:
-                # grab the frame from the threaded video stream and resize it
-                # to have a maximum width of 400 pixels
                 frame = self.cap.read()
                 frame = imutils.resize(frame, width=800)
 
-                # detect faces in the frame and determine if they are wearing a
-                # face mask or not
                 (locs, preds) = self.fame_pred(frame)
 
-                # loop over the detected face locations and their corresponding
-                # locations
                 for (box, pred) in zip(locs, preds):
-                    # unpack the bounding box and predictions
                     (startX, startY, endX, endY) = box
                     (mask, withoutMask) = pred
 
-                    # determine the class label and color we'll use to draw
-                    # the bounding box and text
                     label = "Mask" if mask > withoutMask else "No Mask"
                     color = (0, 255, 0) if label == "Mask" else (0, 0, 255)
 
-                    # include the probability in the label
                     label = "{}: {:.2f}%".format(label, max(mask, withoutMask) * 100)
 
-                    # display the label and bounding box rectangle on the output
-                    # frame
                     cv2.putText(frame, label, (startX, startY - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 2)
                     cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
-                # show the output frame
-                    self.text_live.configure(text=label)
                 self.snap = frame
                 frame = cv2.resize(frame, (1000, 600))
                 img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -551,19 +501,19 @@ class App(customtkinter.CTk):
                 self.live_label.wait_variable(self.cap, 10)
                 if self.cap.stop():
                     break
-
         except:
             pass
 
-    def cam_stop(self):
+    def stop_webcam(self):
         self.webcam_pred is False
-        self.cap.stop()
+        self.cam.stop()
+        self.cam = None
         self.live_btn.configure(text="Reset", command=self.reset)
         self.live_label.configure(image="")
 
     def reset(self):
         self.webcam_pred is True
-        self.cap = None
+        self.cam = None
 
     def takeSnapshot(self):
         try:
